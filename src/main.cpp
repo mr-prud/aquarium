@@ -2,9 +2,13 @@
 #include <PubSubClient.h>
 #include <SPI.h>
 #include <Wire.h>
+#include "SSD1306Wire.h"
+#include "font.h"
 #include "main.h"
 
 //#define DEBUG
+
+SSD1306Wire display(0x3c, D2, D1);
 
 #ifdef DEBUG
 const char *LIGHTTOPIC = "lumiereqqtest/set";
@@ -16,6 +20,8 @@ const char *PUMPTOPIC = "pompeqq/set";
 
 WiFiClient espClient;
 PubSubClient client(espClient);
+
+void displayState();
 
 void refreshrelay()
 {
@@ -29,6 +35,33 @@ void refreshrelay()
     Serial.println(pumpState, HEX);
     Serial.println("--");
 #endif
+    displayState();
+}
+void printState(int x, int y, int state)
+{
+    if (state == HIGH)
+        display.drawString(x, y, "ON");
+    else
+        display.drawString(x, y, "OFF");
+}
+void displayState()
+{
+    display.clear();
+    display.drawString(0, 0, "LIGHT :");
+    printState(50, 0, lightState);
+    display.drawString(0, 10, "PUMP  :");
+    printState(50, 10, pumpState);
+    client.connected();
+    display.drawString(0, 20, "MQTT  : ");
+    if (client.connected())
+    {
+        display.drawString(50, 20, "YES");
+    }
+    else
+    {
+        display.drawString(50, 20, "NO");
+    }
+    display.display();
 }
 
 void callback(char *topic, byte *payload, unsigned int length)
@@ -62,10 +95,9 @@ void reconnect()
     {
         Serial.print("Attempting MQTT connection...");
         // Attempt to connect
-        if (client.connect("ESP8266 Client test"))
+        if (client.connect("ESP8266 Client 1.1.0-beta"))
         {
             Serial.println("connected");
-            // ... and subscribe to topic
             client.subscribe(LIGHTTOPIC);
             client.subscribe(PUMPTOPIC);
         }
@@ -74,10 +106,11 @@ void reconnect()
             Serial.print("failed, rc=");
             Serial.print(client.state());
             Serial.println(" try again in 5 seconds");
-            // Wait 5 seconds before retrying
+
             delay(5000);
         }
     }
+    refreshrelay();
 }
 
 void setup()
@@ -87,14 +120,24 @@ void setup()
 
     delay(10);
 
+    display.init();
+    display.clear();
+
+    display.setTextAlignment(TEXT_ALIGN_LEFT);
+    display.setFont(Roboto_Mono_Light_10);
+    display.drawString(0, 0, "Startup");
+    display.display();
+
     WiFi.mode(WIFI_STA);
     WiFi.begin(ssid, password);
     while (WiFi.status() != WL_CONNECTED)
     {
         delay(500);
-        Serial.print(".");
+        display.print(".");
+        display.display();
     }
-    Serial.print("WiFi connected");
+    display.drawString(0, 10, "WiFi connected");
+    display.display();
 
     client.setServer(mqtt_server, 1883);
     client.setCallback(callback);
