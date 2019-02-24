@@ -9,34 +9,79 @@
 #ifdef DEBUG
 const char *LIGHTTOPIC = "lumiereqqtest/set";
 const char *PUMPTOPIC = "pompeqqtest/set";
+const char *BANTOPIC = "bantest/set";
 #else
 const char *LIGHTTOPIC = "lumiereqq/set";
 const char *PUMPTOPIC = "pompeqq/set";
+const char *BANTOPIC = "ban/set";
 #endif
 
 WiFiClient espClient;
 PubSubClient client(espClient);
 
+void setup()
+{
+
+    Serial.begin(115200);
+
+    delay(10);
+
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(ssid, password);
+    while (WiFi.status() != WL_CONNECTED)
+    {
+        delay(500);
+        logging(".");
+    }
+    logging("WiFi connected\n");
+
+    client.setServer(mqtt_server, 1883);
+    client.setCallback(callback);
+
+    pinMode(LIGHT_PIN, OUTPUT);
+    pinMode(PUMP_PIN, OUTPUT);
+    pinMode(BAN_PIN, OUTPUT);
+
+    refreshrelay();
+}
+
+void loop()
+{
+    if (!client.connected())
+    {
+        reconnect();
+    }
+
+    client.loop();
+    yield();
+}
+
 void refreshrelay()
 {
     digitalWrite(LIGHT_PIN, lightState);
     digitalWrite(PUMP_PIN, pumpState);
-#ifdef DEBUG
-    Serial.println("-refreshrelay-");
-    Serial.print("\tLight : ");
-    Serial.print(lightState, HEX);
-    Serial.print(" Pumpe : ");
-    Serial.println(pumpState, HEX);
-    Serial.println("--");
-#endif
+
+    logging("-refreshrelay-\n\tLight : ");
+    logging(lightState, HEX);
+    logging("\n\t Pumpe : ");
+    logging(pumpState, HEX);
+    logging("--\n");
 }
 
 void callback(char *topic, byte *payload, unsigned int length)
 {
-    Serial.print("Message arrived [");
-    Serial.print(topic);
-    Serial.print("] ");
-
+    logging("Message arrived [");
+    logging(topic);
+    logging("] ");
+    if (!strcmp((char *)topic, BANTOPIC))
+    {
+        if (!strncmp((char *)payload, "OPEN", length))
+            sendRemote(getoutban);
+        else if (!strncmp((char *)payload, "CLOSE", length))
+            sendRemote(enterban);
+        else if (!strncmp((char *)payload, "STOP", length))
+            sendRemote(stopban);
+    }
     if (!strcmp((char *)topic, LIGHTTOPIC))
     {
         if (!strncmp((char *)payload, "ON", length))
@@ -51,7 +96,7 @@ void callback(char *topic, byte *payload, unsigned int length)
         else if (!strncmp((char *)payload, "OFF", length))
             pumpState = LOW;
     }
-    Serial.println();
+    logging("\n");
     refreshrelay();
 }
 
@@ -60,58 +105,84 @@ void reconnect()
     // Loop until we're reconnected
     while (!client.connected())
     {
-        Serial.print("Attempting MQTT connection...");
+        logging("Attempting MQTT connection...");
         // Attempt to connect
-        if (client.connect("ESP8266 Client test"))
+#ifdef DEBUG
+        if (client.connect("ESP8266 Aquarium - Test"))
+#else
+        if (client.connect("ESP8266 Aquarium"))
+#endif
         {
-            Serial.println("connected");
+            logging("\nconnected\n");
             // ... and subscribe to topic
             client.subscribe(LIGHTTOPIC);
             client.subscribe(PUMPTOPIC);
+            client.subscribe(BANTOPIC);
         }
         else
         {
-            Serial.print("failed, rc=");
-            Serial.print(client.state());
-            Serial.println(" try again in 5 seconds");
+            logging("failed, rc=");
+            logging(client.state(), 10);
+            logging(" try again in 5 seconds\n");
             // Wait 5 seconds before retrying
             delay(5000);
         }
     }
 }
 
-void setup()
+// sendRemote : play button sequence
+void sendRemote(uint8_t *bouton)
 {
-
-    Serial.begin(115200);
-
-    delay(10);
-
-    WiFi.mode(WIFI_STA);
-    WiFi.begin(ssid, password);
-    while (WiFi.status() != WL_CONNECTED)
-    {
-        delay(500);
-        Serial.print(".");
-    }
-    Serial.print("WiFi connected");
-
-    client.setServer(mqtt_server, 1883);
-    client.setCallback(callback);
-
-    pinMode(LIGHT_PIN, OUTPUT);
-    pinMode(PUMP_PIN, OUTPUT);
-
-    refreshrelay();
+    start();
+    sendSequence(bouton);
+    start();
+    sendSequence(bouton);
 }
 
-void loop()
+void sendSequence(uint8_t *bouton)
 {
-    if (!client.connected())
+    for (uint8_t i = 0; i < 40; i++)
     {
-        reconnect();
+        sendBit(bouton[i]);
     }
+}
 
-    client.loop();
-    yield();
+void sendBit(uint8_t b)
+{
+    if (b == 1)
+    {
+        digitalWrite(BAN_PIN, HIGH);
+        delayMicroseconds(LONG_DELAY_US);
+        digitalWrite(BAN_PIN, LOW);
+        delayMicroseconds(SHORT_DELAY_US);
+    }
+    else
+    {
+        digitalWrite(BAN_PIN, HIGH);
+        delayMicroseconds(SHORT_DELAY_US);
+        digitalWrite(BAN_PIN, LOW);
+        delayMicroseconds(LONG_DELAY_US);
+    }
+}
+
+void start()
+{
+    digitalWrite(BAN_PIN, HIGH);
+    delayMicroseconds(START_DELAY_US);
+    digitalWrite(BAN_PIN, LOW);
+    delayMicroseconds(START_DELAY_BEFORE_US);
+}
+
+void logging(const char *log_str)
+{
+#ifdef DEBUG
+    Serial.print(log_str);
+#endif
+}
+
+void logging(long n, int base)
+{
+#ifdef DEBUG
+    Serial.print(n, base);
+#endif
 }
